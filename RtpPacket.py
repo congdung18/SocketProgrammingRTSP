@@ -1,88 +1,88 @@
-import sys
-from time import time
-HEADER_SIZE = 12
+# RtpPacket.py - Fixed, safe implementation with create(...)
+import struct
+import time
 
-class RtpPacket:	
-	header = bytearray(HEADER_SIZE)
-	
-	def __init__(self):
-		pass
-		
-	def encode(self, version, padding, extension, cc, seqnum, marker, pt, ssrc, payload):
-		"""Encode the RTP packet with header fields and payload."""
-		timestamp = int(time())
-		self.header = bytearray(HEADER_SIZE)
-		#--------------
-		# TO COMPLETE
-		#--------------
-		# Fill the header bytearray with RTP header fields
+class RtpPacket:
+    def __init__(self):
+        self.header = None
+        self.payload = None
 
-		#RTP-version filed(V), must set to 2
-		#padding(P),extension(X),number of contributing sources(CC) and marker(M) fields all set to zero in this lab
+    @staticmethod
+    def _u32(x):
+        return int(x) & 0xFFFFFFFF
 
-		#Because we have no other contributing sources(field CC == 0),the CSRC-field does not exist
-		#Thus the length of the packet header is therefore 12 bytes
+    @staticmethod
+    def create(seqnum, payload=b'', marker=False, pt=26, ssrc=0, version=2, padding=0, extension=0, cc=0):
+        """
+        Create a raw RTP packet (header + payload) and return bytes.
+        - seqnum: 0..65535
+        - payload: bytes
+        - marker: boolean
+        - pt: payload type (0..127)
+        - ssrc: 32-bit int
+        - version: usually 2
+        """
+        # Normalise values into bounds
+        version = int(version) & 0x03
+        padding = int(padding) & 0x01
+        extension = int(extension) & 0x01
+        cc = int(cc) & 0x0F
+        marker_int = 1 if marker else 0
+        pt_int = int(pt) & 0x7F
+        seqnum_int = int(seqnum) & 0xFFFF
+        timestamp = RtpPacket._u32(time.time() * 1000)  # millisecond timestamp masked to 32-bit
+        ssrc_int = int(ssrc) & 0xFFFFFFFF
 
+        first_byte = (version << 6) | (padding << 5) | (extension << 4) | (cc & 0x0F)
+        second_byte = (marker_int << 7) | pt_int
 
-			#Above all done in ServerWorker.py
+        header = struct.pack('!BBHII', first_byte, second_byte, seqnum_int, timestamp, ssrc_int)
+        return header + (payload if payload is not None else b'')
 
-		# ...
-		#header[] =
+    def encode(self, version, padding, extension, cc, seqnum, marker, pt, ssrc, payload):
+        """
+        Encode RTP packet into self.header and self.payload (kept for compatibility).
+        """
+        version = int(version) & 0x03
+        padding = int(padding) & 0x01
+        extension = int(extension) & 0x01
+        cc = int(cc) & 0x0F
+        marker_int = 1 if marker else 0
+        pt_int = int(pt) & 0x7F
+        seqnum_int = int(seqnum) & 0xFFFF
+        timestamp = RtpPacket._u32(time.time() * 1000)
+        ssrc_int = int(ssrc) & 0xFFFFFFFF
 
-		#header[0] = version + padding + extension + cc + seqnum + marker + pt + ssrc
-		self.header[0] = version << 6
-		self.header[0] = self.header[0] | padding << 5
-		self.header[0] = self.header[0] | extension << 4
-		self.header[0] = self.header[0] | cc
-		self.header[1] = marker << 7
-		self.header[1] = self.header[1] | pt
+        first_byte = (version << 6) | (padding << 5) | (extension << 4) | (cc & 0x0F)
+        second_byte = (marker_int << 7) | pt_int
 
-		self.header[2] = seqnum >> 8
-		self.header[3] = seqnum
+        self.header = struct.pack('!BBHII', first_byte, second_byte, seqnum_int, timestamp, ssrc_int)
+        self.payload = payload if payload is not None else b''
 
-		self.header[4] = (timestamp >> 24) & 0xFF
-		self.header[5] = (timestamp >> 16) & 0xFF
-		self.header[6] = (timestamp >> 8) & 0xFF
-		self.header[7] = timestamp & 0xFF
+    def decode(self, data):
+        """Decode RTP packet: store header (first 12 bytes) and payload (rest)."""
+        if len(data) >= 12:
+            self.header = data[:12]
+            self.payload = data[12:]
+        else:
+            self.header = data
+            self.payload = b''
 
-		self.header[8] = ssrc >> 24
-		self.header[9] = ssrc >> 16
-		self.header[10] = ssrc >> 8
-		self.header[11] = ssrc
+    def getPacket(self):
+        """Return full packet bytes."""
+        if self.header is not None:
+            return self.header + (self.payload or b'')
+        return b''
 
+    def getPayload(self):
+        return self.payload or b''
 
-		# Get the payload from the argument
-		# self.payload = ...
-		self.payload = payload
-		
-	def decode(self, byteStream):
-		"""Decode the RTP packet."""
-		self.header = bytearray(byteStream[:HEADER_SIZE])
-		self.payload = byteStream[HEADER_SIZE:]
-	
-	def version(self):
-		"""Return RTP version."""
-		return int(self.header[0] >> 6)
-	
-	def seqNum(self):
-		"""Return sequence (frame) number."""
-		seqNum = self.header[2] << 8 | self.header[3]
-		return int(seqNum)
-	
-	def timestamp(self):
-		"""Return timestamp."""
-		timestamp = self.header[4] << 24 | self.header[5] << 16 | self.header[6] << 8 | self.header[7]
-		return int(timestamp)
-	
-	def payloadType(self):
-		"""Return payload type."""
-		pt = self.header[1] & 127
-		return int(pt)
-	
-	def getPayload(self):
-		"""Return payload."""
-		return self.payload
-		
-	def getPacket(self):
-		"""Return RTP packet."""
-		return self.header + self.payload
+    def getMarker(self):
+        if self.header and len(self.header) >= 2:
+            return (self.header[1] >> 7) & 0x01
+        return 0
+
+    def seqNum(self):
+        if self.header and len(self.header) >= 4:
+            return struct.unpack('!H', self.header[2:4])[0]
+        return 0

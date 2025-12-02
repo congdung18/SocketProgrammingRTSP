@@ -32,11 +32,26 @@ class ServerWorker:
 
     def recvRtspRequest(self):
         connSocket = self.clientInfo['rtspSocket'][0]
+        print(f"[SERVER] New connection from {self.clientInfo['rtspSocket'][1]}")
+        
         while True:
-            data = connSocket.recv(256)
-            if data:
-                print("Data received:\n" + data.decode("utf-8"))
-                self.processRtspRequest(data.decode("utf-8"))
+            try:
+                data = connSocket.recv(256)
+                if data:
+                    data_str = data.decode("utf-8")
+                    print(f"[SERVER] Received data ({len(data)} bytes):")
+                    print("=" * 50)
+                    print(data_str)
+                    print("=" * 50)
+                    self.processRtspRequest(data_str)
+                else:
+                    print("[SERVER] Client disconnected")
+                    break
+            except UnicodeDecodeError:
+                print(f"[SERVER] Received binary data: {data[:50]}...")
+            except Exception as e:
+                print(f"[SERVER ERROR] in recvRtspRequest: {e}")
+                break
 
     def processRtspRequest(self, data):
         request = data.split('\n')
@@ -111,63 +126,118 @@ class ServerWorker:
                 self.clientInfo['rtpSocket'].close()
 
     def sendRtp(self):
-        """
-        Send RTP packets with fragmentation for large frames.
-        - Use MTU ~1400 bytes for payload per UDP packet.
-        - Set marker bit = 1 on last fragment of a frame.
-        - packet sequence number increments per RTP packet.
-        """
-        MTU = 1400
-        while True:
-            # wait small interval for frame pacing (non-blocking)
-            self.clientInfo['event'].wait(0.01)
-            if self.clientInfo['event'].isSet():
-                break
-
-            data = self.clientInfo['videoStream'].nextFrame()
-            if data:
-                frameNumber = self.clientInfo['videoStream'].frameNbr()
-
-                # target address is client IP from RTSP socket tuple
+        print("[SERVER] === STARTING ENHANCED RTP STREAM ===")
+        
+        client_addr = self.clientInfo['rtspSocket'][1][0]
+        client_port = int(self.clientInfo['rtpPort'])
+        
+        print(f"[SERVER] Client: {client_addr}:{client_port}")
+        
+        # Test UDP
+        try:
+            self.clientInfo['rtpSocket'].sendto(b"TEST", (client_addr, client_port))
+            print("[SERVER] UDP test successful")
+        except Exception as e:
+            print(f"[SERVER] UDP error: {e}")
+            return
+        
+        frame_count = 0
+        max_frames = 1000  # Tăng số frame tối đa
+        
+        try:
+            while frame_count < max_frames:
+                if self.clientInfo['event'].isSet():
+                    print("[SERVER] Stream stopped by event")
+                    break
+                
+                print(f"\n[SERVER] Attempting to read frame {frame_count + 1}...")
+                
+                # Đọc frame
                 try:
-                    address = self.clientInfo['rtspSocket'][1][0]
-                    port = int(self.clientInfo['rtpPort'])
+                    frame_data = self.clientInfo['videoStream'].nextFrame()
+                    
+                    if frame_data is None:
+                        print("[SERVER] No frame data returned")
+                        
+                        # Thử đọc lại 3 lần
+                        for retry in range(3):
+                            print(f"[SERVER] Retry {retry + 1}...")
+                            frame_data = self.clientInfo['videoStream'].nextFrame()
+                            if frame_data:
+                                print(f"[SERVER] Success on retry {retry + 1}")
+                                break
+                            time.sleep(0.01)  # Chờ một chút
+                        
+                        if frame_data is None:
+                            print("[SERVER] Giving up after retries - END OF STREAM")
+                            break
+                    
                 except Exception as e:
-                    print("Cannot get client address/port:", e)
+                    print(f"[SERVER] Error reading frame: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    break
+                
+                frame_count += 1
+                
+                # DEBUG thông tin frame
+                print(f"[SERVER] Frame {frame_count}: {len(frame_data)} bytes")
+                print(f"[SERVER] JPEG starts with: {frame_data[:4].hex() if len(frame_data) >= 4 else 'N/A'}")
+                
+                # Tạo và gửi RTP packet
+                self.packetSeq = (self.packetSeq + 1) % 65536
+                
+                try:
+                    # Chia frame nếu lớn
+                    max_payload = 1400
+                    
+                    if len(frame_data) <= max_payload:
+                        # Gửi 1 packet
+                        packet = RtpPacket.create(
+                            seqnum=self.packetSeq,
+                            payload=frame_data,
+                            marker=True
+                        )
+                        self.clientInfo['rtpSocket'].sendto(packet, (client_addr, client_port))
+                        print(f"[SERVER] Sent packet {self.packetSeq}")
+                    else:
+                        # Chia thành nhiều packet
+                        offset = 0
+                        packet_count = 0
+                        
+                        while offset < len(frame_data):
+                            chunk_size = min(max_payload, len(frame_data) - offset)
+                            chunk = frame_data[offset:offset + chunk_size]
+                            marker = (offset + chunk_size >= len(frame_data))
+                            
+                            packet = RtpPacket.create(
+                                seqnum=self.packetSeq,
+                                payload=chunk,
+                                marker=marker
+                            )
+                            self.clientInfo['rtpSocket'].sendto(packet, (client_addr, client_port))
+                            
+                            packet_count += 1
+                            self.packetSeq = (self.packetSeq + 1) % 65536
+                            offset += chunk_size
+                        
+                        print(f"[SERVER] Sent {packet_count} packets for frame {frame_count}")
+                    
+                except Exception as e:
+                    print(f"[SERVER] Error creating/sending packet: {e}")
+                    import traceback
+                    traceback.print_exc()
                     continue
-
-                # Fragment the frame payload into chunks of size MTU
-                total_len = len(data)
-                offset = 0
-                # compute how many fragments
-                fragments = []
-                while offset < total_len:
-                    chunk = data[offset:offset + MTU]
-                    fragments.append(chunk)
-                    offset += MTU
-
-                # Send all fragments, set marker=1 on last fragment
-                for i, chunk in enumerate(fragments):
-                    is_last = (i == len(fragments) - 1)
-                    # choose a packet sequence number and increment (wrap at 65535)
-                    self.packetSeq = (self.packetSeq + 1) % 256
-                    seqnum = self.packetSeq
-                    marker = 1 if is_last else 0
-
-                    # Payload is raw JPEG chunk (no extra headers) -- client will reassemble using JPEG markers
-                    rtpPacket = RtpPacket()
-                    # Use pt=26 as before, ssrc left as 0
-                    rtpPacket.encode(2, 0, 0, 0, seqnum, marker, 26, 0, chunk)
-                    try:
-                        self.clientInfo['rtpSocket'].sendto(rtpPacket.getPacket(), (address, port))
-                    except:
-                        print("Connection Error while sending RTP packet")
-                        break
-
-                # frame pacing: short sleep to approximate frame rate (e.g., 30fps -> ~33ms)
-                # The server sends all fragments of a frame quickly, then waits
-                # to maintain frame rate. Adjust as needed.
-                time.sleep(0.033)  # ~30 fps
+                
+                # Điều chỉnh framerate
+                time.sleep(0.033)  # ~30fps
+        
+        except Exception as e:
+            print(f"[SERVER] Fatal error: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print(f"\n[SERVER] Stream finished. Sent {frame_count} frames.")
 
     def replyRtsp(self, code, seq):
         """
