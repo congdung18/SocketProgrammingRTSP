@@ -19,6 +19,8 @@ class ServerWorker:
     FILE_NOT_FOUND_404 = 1
     CON_ERR_500 = 2
 
+    CHANGE_RESOLUTION = 'CHANGE_RESOLUTION'
+
     def __init__(self, clientInfo):
         self.clientInfo = clientInfo
         self.packetSeq = randint(0, 65535)
@@ -71,7 +73,7 @@ class ServerWorker:
             print(f"[SERVER] Connection closed for {client_address}")
 
     def processRtspRequest(self, data):
-        """Process RTSP request - FIXED FOR PAUSE/RESUME."""
+        """Process RTSP request - UPDATED FOR CHANGE_RESOLUTION."""
         request = data.strip().split('\n')
         
         if not request or len(request) < 2:
@@ -87,15 +89,18 @@ class ServerWorker:
         
         # Parse headers
         seq = '0'
-        resolution = '720p'
+        resolution = self.clientInfo.get('resolution', '720p')  # Default to current
         client_port = None
+        new_resolution = None  # For CHANGE_RESOLUTION
         
         for line in request[1:]:
             line = line.strip()
             if line.startswith('CSeq:'):
                 seq = line.split(':')[1].strip()
             elif line.startswith('Resolution:'):
+                # For SETUP or CHANGE_RESOLUTION
                 resolution = line.split(':')[1].strip()
+                new_resolution = resolution
             elif line.startswith('Transport:'):
                 if 'client_port=' in line:
                     client_port = line.split('client_port=')[1].strip()
@@ -138,7 +143,7 @@ class ServerWorker:
                     self.clientInfo['rtpSocket'] = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                     self.clientInfo['rtpSocket'].settimeout(1.0)
                 
-                # **FIX: Start streaming thread if not already running**
+                # Start streaming thread if not already running
                 with self.lock:
                     self.streaming = True
                 
@@ -156,18 +161,65 @@ class ServerWorker:
                 print("[SERVER] PAUSE requested")
                 self.state = self.READY
                 
-                # **FIX: Pause streaming but keep thread alive**
+                # Pause streaming but keep thread alive
                 with self.lock:
                     self.streaming = False
                 
                 print("[SERVER] Streaming paused (thread keeps running)")
                 self.replyRtsp(self.OK_200, seq)
         
+        elif requestType == self.CHANGE_RESOLUTION:
+            if self.state in [self.READY, self.PLAYING] and new_resolution:
+                print(f"[SERVER] CHANGE_RESOLUTION requested: {new_resolution}")
+                
+                # Store old state to restore after resolution change
+                old_state = self.state
+                was_playing = (old_state == self.PLAYING)
+                
+                # Pause streaming temporarily if playing
+                if was_playing:
+                    with self.lock:
+                        self.streaming = False
+                    time.sleep(0.1)  # Small delay to ensure pause
+                    print("[SERVER] Paused streaming for resolution change")
+                
+                # Update client info
+                old_resolution = self.clientInfo.get('resolution', '720p')
+                self.clientInfo['resolution'] = new_resolution
+                
+                # Change resolution in video stream
+                video_stream = self.clientInfo.get('videoStream')
+                if video_stream:
+                    success = video_stream.change_resolution(new_resolution)
+                    if success:
+                        print(f"[SERVER] Resolution changed from {old_resolution} to {new_resolution}")
+                        
+                        # Restore previous state
+                        if was_playing:
+                            time.sleep(0.1)  # Small delay
+                            with self.lock:
+                                self.streaming = True
+                            print("[SERVER] Resumed streaming after resolution change")
+                        
+                        # Send success reply
+                        self.replyRtsp(self.OK_200, seq)
+                    else:
+                        print("[SERVER] Failed to change resolution")
+                        # Revert to old resolution
+                        self.clientInfo['resolution'] = old_resolution
+                        self.replyRtsp(self.CON_ERR_500, seq)
+                else:
+                    print("[SERVER] No video stream available")
+                    self.replyRtsp(self.CON_ERR_500, seq)
+            else:
+                print("[SERVER] Invalid CHANGE_RESOLUTION request")
+                self.replyRtsp(self.CON_ERR_500, seq)
+        
         elif requestType == self.TEARDOWN:
             print("[SERVER] TEARDOWN requested")
             self.state = self.INIT
             
-            # **FIX: Stop thread completely**
+            # Stop thread completely
             self.keep_alive = False
             
             # Wait for thread to finish
@@ -192,7 +244,7 @@ class ServerWorker:
             return True  # Signal to close connection
         
         return False
-
+    
     def stop_streaming(self):
         """Stop streaming - MODIFIED VERSION."""
         with self.lock:
@@ -208,9 +260,9 @@ class ServerWorker:
                 del self.clientInfo['rtpSocket']
             except:
                 pass
-            
+
     def sendRtp(self):
-        """Continuous RTP streaming thread - KEEP POSITION WHEN PAUSED."""
+        """Continuous RTP streaming thread - OPTIMIZED."""
         print("[SERVER] ===== RTP STREAMING THREAD STARTED =====")
         
         # Setup
@@ -222,24 +274,21 @@ class ServerWorker:
         
         frame_count = 0
         packet_count = 0
+        last_report_time = time.time()
         
         try:
-            # **CONTINUOUS LOOP - thread runs forever until TEARDOWN**
             while self.keep_alive:
-                # Check if we should send frames (PLAYING state)
+                # Check if we should send frames
                 with self.lock:
                     should_stream = self.streaming
                 
                 if not should_stream:
-                    # PAUSED - sleep briefly and check again
-                    time.sleep(0.1)
+                    time.sleep(0.05)  # Giảm CPU usage khi pause
                     continue
                 
-                # PLAYING - send next frame
+                # Get next frame
                 frame_data = video_stream.nextFrame()
                 if frame_data is None:
-                    # End of video - loop back to beginning
-                    print("[SERVER] End of video reached, looping...")
                     video_stream.reset()
                     frame_data = video_stream.nextFrame()
                     if frame_data is None:
@@ -247,17 +296,15 @@ class ServerWorker:
                 
                 frame_count += 1
                 
-                # Skip invalid frames
-                if len(frame_data) < 4 or frame_data[:2] != b'\xff\xd8' or frame_data[-2:] != b'\xff\xd9':
+                # Validate frame
+                if len(frame_data) < 4:
                     continue
                 
-                # Calculate packets needed
+                # Split and send frame
                 MAX_PAYLOAD = 1400
                 frame_size = len(frame_data)
-                num_packets = (frame_size + MAX_PAYLOAD - 1) // MAX_PAYLOAD
-                
-                # Split and send frame
                 offset = 0
+                
                 while offset < frame_size:
                     chunk_size = min(MAX_PAYLOAD, frame_size - offset)
                     chunk = frame_data[offset:offset + chunk_size]
@@ -285,24 +332,27 @@ class ServerWorker:
                     
                     offset += chunk_size
                     
+                    # Small delay between packets
                     if not is_last_packet:
-                        time.sleep(0.001)  # Small delay between packets
+                        time.sleep(0.0005)  # Giảm delay để tăng performance
                 
-                # Progress reporting
-                if frame_count % 100 == 0:
-                    print(f"[SERVER] Sent {frame_count} frames, {packet_count} packets")
+                # Progress reporting mỗi 5 giây
+                current_time = time.time()
+                if current_time - last_report_time >= 5.0:
+                    fps = frame_count / (current_time - last_report_time)
+                    print(f"[SERVER] Sent {frame_count} frames, {packet_count} packets, FPS: {fps:.1f}")
+                    last_report_time = current_time
+                    frame_count = 0
                 
-                # Frame rate control (~30 FPS)
-                time.sleep(0.033)
+                # Frame rate control (~25 FPS)
+                time.sleep(0.04)
         
         except Exception as e:
             print(f"[SERVER] Streaming thread error: {e}")
         
         finally:
             print(f"[SERVER] ===== STREAMING THREAD ENDED =====")
-            print(f"  Total frames sent in session: {frame_count}")
-            print(f"  Total packets sent: {packet_count}")
-
+            
     def replyRtsp(self, code, seq):
         """Send RTSP reply."""
         connSocket, client_address = self.clientInfo['rtspSocket']

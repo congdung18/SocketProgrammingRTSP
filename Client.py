@@ -17,6 +17,7 @@ class Client:
     PLAY = 1
     PAUSE = 2
     TEARDOWN = 3
+    CHANGE_RESOLUTION = 4  # THÊM DÒNG NÀY
 
     def __init__(self, master, serveraddr, serverport, rtpport, filename):
         self.master = master
@@ -72,7 +73,7 @@ class Client:
         self.connectToServer()
 
     def createWidgets(self):
-        """Build responsive GUI with resolution selector."""
+        """Build responsive GUI with resolution selector and change button."""
         # Configure grid
         self.master.grid_rowconfigure(0, weight=0)  # Resolution selector
         self.master.grid_rowconfigure(1, weight=1)  # Video label
@@ -81,63 +82,109 @@ class Client:
         for i in range(4):
             self.master.grid_columnconfigure(i, weight=1)
 
-        # Resolution selection
-        resolution_frame = Frame(self.master)
+        # Resolution selection frame
+        resolution_frame = Frame(self.master, bg='#f0f0f0')
         resolution_frame.grid(row=0, column=0, columnspan=4, sticky='ew', padx=5, pady=5)
         
-        Label(resolution_frame, text="Resolution:", font=('Arial', 10)).pack(side=LEFT, padx=5)
+        # Resolution label
+        Label(resolution_frame, text="Resolution:", font=('Arial', 10, 'bold'), 
+            bg='#f0f0f0').pack(side=LEFT, padx=5)
         
+        # Resolution dropdown
         self.resolution_var = StringVar(value=self.resolution)
         self.resolution_menu = OptionMenu(resolution_frame, self.resolution_var, 
-                                         "720p", "1080p", 
-                                         command=self.on_resolution_change)
-        self.resolution_menu.config(width=10)
+                                        "720p", "1080p", 
+                                        command=self.on_resolution_change)
+        self.resolution_menu.config(width=10, font=('Arial', 9))
         self.resolution_menu.pack(side=LEFT, padx=5)
         
-        self.resolution_label = Label(resolution_frame, text=f"Selected: {self.resolution}", 
-                                     font=('Arial', 9), fg='blue')
+        # Change resolution button
+        self.change_res_btn = Button(resolution_frame, text="Change Resolution", 
+                                    command=self.changeResolution,
+                                    font=('Arial', 9), width=15,
+                                    bg='#4CAF50', fg='white',
+                                    activebackground='#45a049',
+                                    state='disabled')
+        self.change_res_btn.pack(side=LEFT, padx=10)
+        
+        # Current resolution label
+        self.resolution_label = Label(resolution_frame, 
+                                    text=f"Current: {self.resolution}", 
+                                    font=('Arial', 9, 'bold'), 
+                                    fg='blue', bg='#f0f0f0')
         self.resolution_label.pack(side=LEFT, padx=10)
 
         # Video display label
-        self.label = Label(self.master, bg='black', text="Connect to server first", 
-                          font=('Arial', 12), fg='white')
+        self.label = Label(self.master, bg='black', 
+                        text="Connect to server first\nClick 'Setup' to begin", 
+                        font=('Arial', 12), fg='white', justify='center')
         self.label.grid(row=1, column=0, columnspan=4, sticky='nsew', padx=5, pady=5)
 
-        # Control buttons
-        self.setup = Button(self.master, width=15, padx=3, pady=3, font=('Arial', 10))
+        # Control buttons frame
+        button_frame = Frame(self.master, bg='#e0e0e0')
+        button_frame.grid(row=2, column=0, columnspan=4, sticky='ew', padx=5, pady=5)
+        
+        # Setup button
+        self.setup = Button(button_frame, width=15, padx=3, pady=3, 
+                        font=('Arial', 10, 'bold'))
         self.setup["text"] = "Setup"
         self.setup["command"] = self.setupMovie
-        self.setup.grid(row=2, column=0, padx=10, pady=10, sticky='ew')
+        self.setup["bg"] = "#2196F3"  # Blue
+        self.setup["fg"] = "white"
+        self.setup["activebackground"] = "#1976D2"
+        self.setup.grid(row=0, column=0, padx=10, pady=10, sticky='ew')
 
-        self.start = Button(self.master, width=15, padx=3, pady=3, font=('Arial', 10))
+        # Play button
+        self.start = Button(button_frame, width=15, padx=3, pady=3, 
+                        font=('Arial', 10, 'bold'))
         self.start["text"] = "Play"
         self.start["command"] = self.playMovie
+        self.start["bg"] = "#4CAF50"  # Green
+        self.start["fg"] = "white"
+        self.start["activebackground"] = "#45a049"
         self.start["state"] = "disabled"
-        self.start.grid(row=2, column=1, padx=10, pady=10, sticky='ew')
+        self.start.grid(row=0, column=1, padx=10, pady=10, sticky='ew')
 
-        self.pause = Button(self.master, width=15, padx=3, pady=3, font=('Arial', 10))
+        # Pause button
+        self.pause = Button(button_frame, width=15, padx=3, pady=3, 
+                        font=('Arial', 10, 'bold'))
         self.pause["text"] = "Pause"
         self.pause["command"] = self.pauseMovie
+        self.pause["bg"] = "#FF9800"  # Orange
+        self.pause["fg"] = "white"
+        self.pause["activebackground"] = "#F57C00"
         self.pause["state"] = "disabled"
-        self.pause.grid(row=2, column=2, padx=10, pady=10, sticky='ew')
+        self.pause.grid(row=0, column=2, padx=10, pady=10, sticky='ew')
 
-        self.teardown = Button(self.master, width=15, padx=3, pady=3, font=('Arial', 10))
+        # Teardown button
+        self.teardown = Button(button_frame, width=15, padx=3, pady=3, 
+                            font=('Arial', 10, 'bold'))
         self.teardown["text"] = "Teardown"
         self.teardown["command"] = self.exitClient
+        self.teardown["bg"] = "#f44336"  # Red
+        self.teardown["fg"] = "white"
+        self.teardown["activebackground"] = "#d32f2f"
         self.teardown["state"] = "disabled"
-        self.teardown.grid(row=2, column=3, padx=10, pady=10, sticky='ew')
+        self.teardown.grid(row=0, column=3, padx=10, pady=10, sticky='ew')
 
         # Status frame
-        status_frame = Frame(self.master)
+        status_frame = Frame(self.master, bg='#f8f8f8', height=30)
         status_frame.grid(row=3, column=0, columnspan=4, sticky='ew', padx=5, pady=2)
+        status_frame.grid_propagate(False)
         
-        self.status_label = Label(status_frame, text="Status: Not connected", 
-                                 font=('Arial', 9), fg='gray')
-        self.status_label.pack(side=LEFT, padx=5)
+        # Status label
+        self.status_label = Label(status_frame, text="Status: Not connected to server", 
+                                font=('Arial', 9), fg='gray', bg='#f8f8f8')
+        self.status_label.pack(side=LEFT, padx=10, pady=5)
         
+        # Stats label
         self.stats_label = Label(status_frame, text="Packets: 0 | Frames: 0", 
-                                font=('Arial', 9), fg='blue')
-        self.stats_label.pack(side=RIGHT, padx=5)
+                                font=('Arial', 9), fg='blue', bg='#f8f8f8')
+        self.stats_label.pack(side=RIGHT, padx=10, pady=5)
+
+        # Configure button frame columns
+        for i in range(4):
+            button_frame.grid_columnconfigure(i, weight=1)
 
         # Bind resize event
         self.master.bind('<Configure>', self.on_window_resize)
@@ -149,39 +196,87 @@ class Client:
             self.start["state"] = "disabled"
             self.pause["state"] = "disabled"
             self.teardown["state"] = "normal"
-            self.status_label.config(text="Status: Ready to Setup", fg='blue')
+            self.change_res_btn["state"] = "disabled"
+            self.change_res_btn["bg"] = "#A5D6A7"
+            self.change_res_btn["text"] = "Change Resolution"
+            self.status_label.config(text="Status: Ready to Setup", fg='blue', font=('Arial', 9, 'bold'))
+            
         elif self.state == self.READY:
             self.setup["state"] = "disabled"
             self.start["state"] = "normal"
             self.pause["state"] = "disabled"
             self.teardown["state"] = "normal"
-            self.status_label.config(text="Status: Ready to Play", fg='green')
+            self.change_res_btn["state"] = "normal"
+            self.change_res_btn["bg"] = "#4CAF50"
+            
+            # Update button text based on selected resolution
+            selected_res = self.resolution_var.get()
+            if selected_res != self.resolution:
+                self.change_res_btn["text"] = f"Change to {selected_res}"
+            else:
+                self.change_res_btn["text"] = "Change Resolution"
+                
+            self.status_label.config(text=f"Status: Ready to Play ({self.resolution})", 
+                                fg='green', font=('Arial', 9, 'bold'))
+            
         elif self.state == self.PLAYING:
             self.setup["state"] = "disabled"
             self.start["state"] = "disabled"
             self.pause["state"] = "normal"
             self.teardown["state"] = "normal"
-            self.status_label.config(text="Status: Playing", fg='green')
+            self.change_res_btn["state"] = "normal"
+            self.change_res_btn["bg"] = "#4CAF50"
+            
+            # Update button text based on selected resolution
+            selected_res = self.resolution_var.get()
+            if selected_res != self.resolution:
+                self.change_res_btn["text"] = f"Change to {selected_res}"
+            else:
+                self.change_res_btn["text"] = "Change Resolution"
+                
+            self.status_label.config(text=f"Status: Playing ({self.resolution})", 
+                                fg='green', font=('Arial', 9, 'bold'))
+        
+        # Update resolution label
+        self.resolution_label.config(text=f"Current: {self.resolution}", 
+                                font=('Arial', 9, 'bold'), fg='blue')
+        
+        # Update window title
+        self.master.title(f"RTP Video Client - {self.resolution}")
+        
+        self.master.update_idletasks()
 
     def updateStats(self):
         """Update statistics display."""
         self.stats_label.config(text=f"Packets: {self.packets_received} | Frames: {self.frames_received}")
 
     def on_resolution_change(self, value):
-        """Handle resolution change."""
-        old_resolution = self.resolution
-        self.resolution = value
+        """Handle resolution change dropdown selection."""
+        print(f"[CLIENT] Resolution dropdown changed to: {value}")
         
+        # Update button text
+        if self.change_res_btn["state"] == "normal":
+            if value != self.resolution:
+                self.change_res_btn["text"] = f"Change to {value}"
+            else:
+                self.change_res_btn["text"] = "Change Resolution"
+        
+        # Update resolution label
+        if value != self.resolution:
+            self.resolution_label.config(text=f"Current: {self.resolution} → Selected: {value}", 
+                                    fg='orange', font=('Arial', 9, 'bold'))
+        else:
+            self.resolution_label.config(text=f"Current: {self.resolution}", 
+                                    fg='blue', font=('Arial', 9, 'bold'))
+        
+        # Update target dimensions
         if value == "720p":
             self.target_width = 1280
             self.target_height = 720
         elif value == "1080p":
             self.target_width = 1920
             self.target_height = 1080
-        
-        self.resolution_label.config(text=f"Selected: {value}")
-        print(f"[CLIENT] Resolution changed from {old_resolution} to {value}")
-
+    
     def on_window_resize(self, event):
         """Handle window resize events."""
         if event.widget == self.master:
@@ -212,13 +307,11 @@ class Client:
         """Teardown button handler."""
         print("[CLIENT] ExitClient called")
         
-        # Set flags to stop threads
         self.running = False
         self.stop_listening.set()
         self.playEvent.set()
         self.display_event.set()
         
-        # Send TEARDOWN request if connected
         if self.state != self.INIT and self.rtspSocket:
             try:
                 self.sendRtspRequest(self.TEARDOWN)
@@ -251,7 +344,6 @@ class Client:
             except:
                 pass
         
-        # Destroy window
         self.master.destroy()
         print("[CLIENT] Window destroyed")
 
@@ -262,12 +354,11 @@ class Client:
             self.sendRtspRequest(self.PAUSE)
 
     def playMovie(self):
-        """Play button handler - FIXED VERSION."""
+        """Play button handler."""
         if self.state == self.READY:
             print("[CLIENT] Play button clicked")
             self.label.configure(text="Starting video playback...")
             
-            # **CRITICAL FIX: Clear stop flag FIRST**
             self.stop_listening.clear()
             
             # Reset statistics
@@ -279,11 +370,9 @@ class Client:
             if not self.rtpSocket:
                 self.openRtpPort()
             
-            # **FIX: Send PLAY request BEFORE starting listener**
             print("[CLIENT] Sending PLAY request...")
             self.sendRtspRequest(self.PLAY)
             
-            # **FIX: Wait a bit for server to start streaming**
             time.sleep(0.5)
             
             # Start RTP listener thread
@@ -299,7 +388,7 @@ class Client:
                 print("[CLIENT] Started display worker thread")
 
     def listenRtp(self):
-        """RTP listener - FIXED for multi-packet frames."""
+        """RTP listener."""
         print("[CLIENT] RTP listener started")
         
         if not self.rtpSocket:
@@ -311,8 +400,9 @@ class Client:
         packet_count = 0
         frame_count = 0
         last_seq = -1
+        last_report_time = time.time()
         
-        self.rtpSocket.settimeout(1.0)
+        self.rtpSocket.settimeout(0.5)
         
         try:
             while not self.stop_listening.is_set() and self.state == self.PLAYING:
@@ -326,53 +416,38 @@ class Client:
                     self.packets_received += 1
                     
                     # Parse RTP header
-                    version = (data[0] >> 6) & 0x03
                     marker = (data[1] >> 7) & 0x01
-                    payload_type = data[1] & 0x7F
                     seq_num = (data[2] << 8) | data[3]
                     payload = data[12:]
                     
-                    # **DEBUG: First few packets**
-                    if packet_count <= 10:
-                        print(f"[CLIENT] Packet {packet_count}: Seq={seq_num}, Marker={marker}, Size={len(payload)}")
-                    
                     # Check sequence continuity
                     if last_seq != -1 and seq_num != (last_seq + 1) % 65536:
-                        print(f"[CLIENT] Sequence gap: {last_seq} -> {seq_num}")
+                        gap = (seq_num - last_seq - 1) % 65536
+                        if gap > 0:
+                            print(f"[CLIENT] Sequence gap: {last_seq} -> {seq_num} (gap: {gap})")
                     
                     last_seq = seq_num
                     
-                    # **FIXED FRAME ASSEMBLY LOGIC:**
-                    # Look for JPEG start in payload
+                    # Frame assembly
                     if not expecting_frame:
                         soi_pos = payload.find(b'\xff\xd8')
                         if soi_pos != -1:
-                            # Start of new frame
-                            print(f"[CLIENT] Starting frame at packet {packet_count}, Seq {seq_num}")
                             current_frame = bytearray(payload[soi_pos:])
                             expecting_frame = True
                         else:
-                            # No JPEG start, skip
                             continue
                     else:
-                        # Continue building frame
                         current_frame.extend(payload)
                     
-                    # Check if frame is complete (marker=1)
+                    # Check if frame is complete
                     if marker == 1 and expecting_frame:
-                        # Look for JPEG end
                         eoi_pos = current_frame.find(b'\xff\xd9')
                         if eoi_pos != -1:
-                            # Complete JPEG frame
                             jpeg_data = bytes(current_frame[:eoi_pos + 2])
                             
                             if jpeg_data[:2] == b'\xff\xd8' and jpeg_data[-2:] == b'\xff\xd9':
                                 frame_count += 1
                                 self.frames_received += 1
-                                
-                                print(f"\n[CLIENT] ===== FRAME COMPLETE =====")
-                                print(f"[CLIENT] Frame {frame_count} from {packet_count} packets")
-                                print(f"[CLIENT] Size: {len(jpeg_data)} bytes")
                                 
                                 # Save to cache
                                 cache_file = self.writeFrame(jpeg_data)
@@ -380,40 +455,34 @@ class Client:
                                     self._last_frame_file = cache_file
                                     self.display_event.set()
                                 
-                                self.updateStats()
-                            else:
-                                print(f"[CLIENT] Invalid JPEG in completed frame")
+                                # Update stats every 10 frames
+                                if frame_count % 10 == 0:
+                                    self.updateStats()
                             
                             # Reset for next frame
                             expecting_frame = False
                             current_frame = bytearray()
-                            
-                            # Check if next frame starts immediately
-                            if eoi_pos + 2 < len(current_frame):
-                                remaining = current_frame[eoi_pos + 2:]
-                                soi_pos = remaining.find(b'\xff\xd8')
-                                if soi_pos != -1:
-                                    current_frame = bytearray(remaining[soi_pos:])
-                                    expecting_frame = True
-                        else:
-                            print(f"[CLIENT] WARNING: Marker=1 but no JPEG end")
                     
-                    # Progress
-                    if packet_count % 100 == 0:
-                        print(f"[CLIENT] Received {packet_count} packets, {frame_count} frames")
-                        self.updateStats()
+                    # Progress reporting
+                    current_time = time.time()
+                    if current_time - last_report_time >= 2.0:
+                        fps = frame_count / (current_time - last_report_time)
+                        print(f"[CLIENT] Receiving: {fps:.1f} FPS, {packet_count} packets")
+                        last_report_time = current_time
+                        frame_count = 0
+                        packet_count = 0
                     
                 except socket.timeout:
                     continue
                 except Exception as e:
-                    print(f"[CLIENT] Error: {e}")
+                    print(f"[CLIENT] Listen error: {e}")
                     continue
         
         except Exception as e:
             print(f"[CLIENT] Fatal: {e}")
         
-        print(f"[CLIENT] Stopped: {packet_count} packets, {frame_count} frames")
-
+        print(f"[CLIENT] RTP listener stopped")
+        
     def displayWorker(self):
         """Display worker thread."""
         print("[CLIENT] Display worker started")
@@ -422,7 +491,6 @@ class Client:
         
         while not self.stop_listening.is_set() and self.state == self.PLAYING:
             try:
-                # Wait for frame or timeout
                 if self.display_event.wait(timeout=1.0):
                     if self._last_frame_file and os.path.exists(self._last_frame_file):
                         try:
@@ -434,7 +502,6 @@ class Client:
                             print(f"[CLIENT] Display error: {e}")
                     self.display_event.clear()
                 else:
-                    # Timeout - check if we should still be running
                     if self.state != self.PLAYING:
                         break
             except Exception as e:
@@ -445,16 +512,13 @@ class Client:
     def updateMovie(self, imageFile):
         """Update movie display."""
         try:
-            # Load image
             image = Image.open(imageFile)
             
             if self.display_width > 0 and self.display_height > 0:
                 image.thumbnail((self.display_width, self.display_height), Image.Resampling.LANCZOS)
             
-            # Convert to PhotoImage
             photo = ImageTk.PhotoImage(image)
             
-            # Update in main thread
             self.master.after(0, lambda p=photo: self.updateImage(p))
             
         except Exception as e:
@@ -465,13 +529,11 @@ class Client:
         self.current_photo = photo
         self.label.configure(image=photo, text="")
         self.label.image = photo
-        self.status_label.config(text="Status: Playing video", fg='green')
 
     def writeFrame(self, data):
         """Write frame to cache file with verification."""
         cache_file = CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
         
-        # Verify JPEG before writing
         if not self.isValidJpeg(data):
             print(f"[CLIENT] WARNING: Invalid JPEG data")
             print(f"  Start: {data[:2].hex() if len(data) >= 2 else 'N/A'}")
@@ -483,8 +545,6 @@ class Client:
             with open(cache_file, "wb") as f:
                 f.write(data)
             
-            # Verify file was written
-            import os
             file_size = os.path.getsize(cache_file)
             print(f"[CLIENT] Wrote frame to {cache_file} ({file_size} bytes)")
             
@@ -505,7 +565,6 @@ class Client:
             self.label.configure(text="Connected to server. Click Setup.", fg='green')
             self.status_label.config(text="Status: Connected to server", fg='green')
             
-            # Update button states
             self.updateButtonStates()
             return True
         except Exception as e:
@@ -516,8 +575,12 @@ class Client:
             return False
 
     def sendRtspRequest(self, requestCode):
-        """Send RTSP request to the server."""
+        """Send RTSP request to the server - UPDATED WITH CHANGE_RESOLUTION."""
         print(f"[CLIENT] Sending request: {requestCode}")
+        
+        if not self.rtspSocket:
+            print("[CLIENT] ERROR: No RTSP socket connection")
+            return
         
         if requestCode == self.SETUP and self.state == self.INIT:
             self.rtspSeq = 1
@@ -556,24 +619,36 @@ class Client:
             )
             self.requestSent = self.TEARDOWN
             
+        # THÊM CASE CHO CHANGE_RESOLUTION
+        elif requestCode == self.CHANGE_RESOLUTION and self.state in [self.READY, self.PLAYING]:
+            self.rtspSeq += 1
+            new_resolution = self.resolution_var.get()
+            request = (
+                f"CHANGE_RESOLUTION {self.fileName} RTSP/1.0\r\n"
+                f"CSeq: {self.rtspSeq}\r\n"
+                f"Session: {self.sessionId}\r\n"
+                f"Resolution: {new_resolution}\r\n\r\n"
+            )
+            self.requestSent = self.CHANGE_RESOLUTION
+            print(f"[CLIENT] CHANGE_RESOLUTION request to: {new_resolution}")
+            
         else:
             print(f"[CLIENT] Invalid request in current state: {requestCode}, state={self.state}")
             return
         
-        print(f"[CLIENT] Sending request:\n{request}")
+        print(f"[CLIENT] Sending request (CSeq: {self.rtspSeq}):\n{request}")
         
         try:
             self.rtspSocket.send(request.encode())
             print(f"[CLIENT] Request sent successfully")
             
-            # Start reply thread for SETUP
-            if requestCode == self.SETUP and (not self.reply_thread or not self.reply_thread.is_alive()):
-                self.reply_thread = threading.Thread(target=self.recvRtspReply, daemon=True)
-                self.reply_thread.start()
-                
+            if requestCode == self.SETUP:
+                if not self.reply_thread or not self.reply_thread.is_alive():
+                    self.reply_thread = threading.Thread(target=self.recvRtspReply, daemon=True)
+                    self.reply_thread.start()
+                    
         except Exception as e:
             print(f"[CLIENT] Error sending request: {e}")
-            self.label.configure(text=f"Error sending request: {e}", fg='red')
 
     def recvRtspReply(self):
         """Receive RTSP reply from the server."""
@@ -591,7 +666,6 @@ class Client:
                     reply_str = reply.decode("utf-8", errors='ignore')
                     self.parseRtspReply(reply_str)
                     
-                    # Stop if TEARDOWN acknowledged
                     if self.requestSent == self.TEARDOWN and self.teardownAcked:
                         break
                         
@@ -609,7 +683,7 @@ class Client:
         print("[CLIENT] RTSP reply thread stopped")
 
     def parseRtspReply(self, data):
-        """Parse RTSP reply."""
+        """Parse RTSP reply - UPDATED WITH CHANGE_RESOLUTION."""
         print(f"[CLIENT] Received reply:\n{data}")
         
         lines = data.strip().split('\n')
@@ -621,31 +695,61 @@ class Client:
         status_line = lines[0]
         if '200 OK' not in status_line:
             print(f"[CLIENT] Server error: {status_line}")
-            self.label.configure(text=f"Server error: {status_line}", fg='red')
+            error_msg = status_line.replace('RTSP/1.0 ', '')
+            self.label.configure(text=f"Server error: {error_msg}", fg='red')
             return
         
         # Parse headers
         cseq = 0
         session = 0
+        new_resolution = self.resolution
+        
         for line in lines[1:]:
+            line = line.strip()
             if line.startswith('CSeq:'):
-                cseq = int(line.split(':')[1].strip())
+                try:
+                    cseq = int(line.split(':')[1].strip())
+                except:
+                    cseq = 0
             elif line.startswith('Session:'):
-                session = int(line.split(':')[1].strip())
+                try:
+                    session = int(line.split(':')[1].strip())
+                except:
+                    session = 0
+            elif line.startswith('Resolution:'):
+                new_resolution = line.split(':')[1].strip()
+                print(f"[CLIENT] Server reports resolution: {new_resolution}")
         
-        if cseq != self.rtspSeq:
-            print(f"[CLIENT] CSeq mismatch: expected {self.rtspSeq}, got {cseq}")
-            return
-        
+        # Update session ID
         if session and self.sessionId == 0:
             self.sessionId = session
             print(f"[CLIENT] Session ID set to: {self.sessionId}")
+        
+        # Check if resolution changed
+        resolution_changed = False
+        if new_resolution and new_resolution != self.resolution:
+            old_resolution = self.resolution
+            self.resolution = new_resolution
+            self.resolution_var.set(new_resolution)
+            self.resolution_label.config(text=f"Current: {new_resolution}", 
+                                    font=('Arial', 9, 'bold'), fg='blue')
+            resolution_changed = True
+            
+            # Update target dimensions
+            if new_resolution == "720p":
+                self.target_width = 1280
+                self.target_height = 720
+            elif new_resolution == "1080p":
+                self.target_width = 1920
+                self.target_height = 1080
+            
+            print(f"[CLIENT] Resolution updated from {old_resolution} to {new_resolution}")
         
         # Update state based on request
         if self.requestSent == self.SETUP:
             self.state = self.READY
             print("[CLIENT] SETUP successful, state=READY")
-            self.label.configure(text="Setup complete. Click Play to start.", fg='green')
+            self.label.configure(text="Setup complete!\nClick 'Play' to start.", fg='green')
             self.updateButtonStates()
             
         elif self.requestSent == self.PLAY:
@@ -657,57 +761,87 @@ class Client:
         elif self.requestSent == self.PAUSE:
             self.state = self.READY
             print("[CLIENT] PAUSE successful, state=READY")
-            self.label.configure(text="Paused. Click Play to resume.", fg='blue')
-            self.stop_listening.set()  # Stop RTP listener
+            self.label.configure(text="Video paused", fg='blue')
+            self.stop_listening.set()
+            self.updateButtonStates()
+            
+        elif self.requestSent == self.CHANGE_RESOLUTION:
+            print(f"[CLIENT] CHANGE_RESOLUTION successful to {self.resolution}")
+            
+            # Clear old cache
+            if self.sessionId > 0:
+                try:
+                    cache_file = CACHE_FILE_NAME + str(self.sessionId) + CACHE_FILE_EXT
+                    if os.path.exists(cache_file):
+                        os.remove(cache_file)
+                        print(f"[CLIENT] Cleared old cache file")
+                except:
+                    pass
+            
+            # Reset counters
+            self.frameNbr = 0
+            self.frames_received = 0
+            self.packets_received = 0
+            self.updateStats()
+            
+            # Update UI
+            self.label.configure(text=f"Resolution changed to {self.resolution}!\nVideo will resume shortly...", 
+                            fg='green')
+            self.status_label.config(text=f"Status: Playing at {self.resolution}", 
+                                fg='green', font=('Arial', 9, 'bold'))
+            
+            # Re-enable change button
+            self.change_res_btn["state"] = "normal"
+            self.change_res_btn["text"] = "Change Resolution"
+            
+            # If we were playing, update button states
+            if self.state == self.PLAYING:
+                print("[CLIENT] Resuming playback at new resolution")
+                self.master.after(1000, lambda: self.label.configure(
+                    text=f"Playing at {self.resolution}...", 
+                    fg='green'
+                ))
+            
             self.updateButtonStates()
             
         elif self.requestSent == self.TEARDOWN:
             self.teardownAcked = 1
             print("[CLIENT] TEARDOWN acknowledged")
             self.state = self.INIT
-            self.label.configure(text="Disconnected. Click Setup to reconnect.", fg='black')
-            self.stop_listening.set()  # Stop RTP listener
+            self.label.configure(text="Disconnected from server", fg='black')
+            self.stop_listening.set()
             self.updateButtonStates()
             
-            # Clean up
             if self.rtpSocket:
                 try:
                     self.rtpSocket.close()
                     self.rtpSocket = None
                 except:
                     pass
-
+    
     def openRtpPort(self):
-        """Open RTP port - FIXED VERSION."""
+        """Open RTP port."""
         try:
             self.rtpSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             
-            # CRITICAL FIX: Set socket options BEFORE binding
             self.rtpSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            
-            # Increase receive buffer
             self.rtpSocket.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 65536 * 4)
             
-            # **FIX: Use the server's IP address or 0.0.0.0**
-            # Client should bind to 0.0.0.0 to receive from ANY source
-            # NOT to 10.232.4.44 (which is the server IP)
-            bind_ip = '0.0.0.0'  # Listen on ALL interfaces
+            bind_ip = '0.0.0.0'
             
             print(f"[CLIENT] Binding RTP socket to {bind_ip}:{self.rtpPort}")
             self.rtpSocket.bind((bind_ip, self.rtpPort))
             
-            # Set socket to non-blocking with timeout
-            self.rtpSocket.settimeout(2.0)  # 2 second timeout
+            self.rtpSocket.settimeout(2.0)
             
             sockname = self.rtpSocket.getsockname()
             print(f"[CLIENT] RTP port {self.rtpPort} opened and bound to {sockname}")
             
-            # **DEBUG: Test if we can receive our own packets**
+            # Test connection
             test_msg = b"RTP_TEST"
             self.rtpSocket.sendto(test_msg, ('127.0.0.1', self.rtpPort))
             print(f"[CLIENT] Sent test packet to 127.0.0.1:{self.rtpPort}")
             
-            # Try to receive the test packet
             try:
                 data, addr = self.rtpSocket.recvfrom(1024)
                 print(f"[CLIENT] Received test packet: {data} from {addr}")
@@ -730,8 +864,67 @@ class Client:
         """Check if data is a valid JPEG."""
         if not data or len(data) < 4:
             return False
-        # Check for JPEG start marker (FF D8) and end marker (FF D9)
         return data[:2] == b'\xff\xd8' and data[-2:] == b'\xff\xd9'
+    
+    def changeResolution(self):
+        """Handle resolution change mid-stream."""
+        new_resolution = self.resolution_var.get()
+        
+        # Validate selection
+        if new_resolution not in ["720p", "1080p"]:
+            tkMessageBox.showerror("Error", f"Invalid resolution: {new_resolution}")
+            return
+        
+        # Check if already at this resolution
+        if new_resolution == self.resolution:
+            tkMessageBox.showinfo("Info", f"Already streaming at {new_resolution}")
+            return
+        
+        # Check if in valid state
+        if self.state not in [self.READY, self.PLAYING]:
+            tkMessageBox.showerror("Error", "Cannot change resolution in current state")
+            return
+        
+        # Confirm with user
+        confirm_msg = f"Change resolution from {self.resolution} to {new_resolution}?"
+        if self.state == self.PLAYING:
+            confirm_msg += "\n\nVideo will pause briefly during the change."
+        
+        response = tkMessageBox.askyesno("Change Resolution", confirm_msg)
+        
+        if response:
+            print(f"[CLIENT] Requesting resolution change to {new_resolution}")
+            
+            # Update UI to show change in progress
+            self.status_label.config(text=f"Changing to {new_resolution}...", 
+                                fg='orange', font=('Arial', 9, 'bold'))
+            self.label.configure(text=f"Changing resolution to {new_resolution}...\nPlease wait...", 
+                            fg='orange', font=('Arial', 12))
+            
+            # Disable change button during transition
+            self.change_res_btn["state"] = "disabled"
+            self.change_res_btn["text"] = "Changing..."
+            
+            # Disable other control buttons temporarily
+            if self.state == self.PLAYING:
+                self.pause["state"] = "disabled"
+                self.pause["bg"] = "#FFE0B2"
+            self.start["state"] = "disabled"
+            self.start["bg"] = "#C8E6C9"
+            
+            self.master.update()
+            
+            # Send CHANGE_RESOLUTION request
+            self.sendRtspRequest(self.CHANGE_RESOLUTION)
+            
+            # Set timeout to re-enable button if no response
+            def reenable_button():
+                if self.change_res_btn["state"] == "disabled":
+                    self.change_res_btn["state"] = "normal"
+                    self.change_res_btn["text"] = "Change Resolution"
+                    self.status_label.config(text="Change request timed out", fg='red')
+            
+            self.master.after(10000, reenable_button)
 
 if __name__ == "__main__":
     try:
