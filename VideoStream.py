@@ -1,102 +1,129 @@
+from PIL import Image
+import io
+
 class VideoStream:
-    def __init__(self, filename):
+    def __init__(self, filename, resolution="720p"):
         self.filename = filename
-        try:
-            self.file = open(filename, 'rb')
-        except:
-            raise IOError
-        self.frameNum = 0
-        self.mode = None
+        self.resolution = resolution
+        self.frames = []
+        self.current_index = 0  # **CHỈ DÙNG 1 biến đếm**
         
-        # Detect format
-        first_bytes = self.file.read(5)
-        self.file.seek(0)
-        
-        if len(first_bytes) >= 2 and first_bytes[:2] == b'\xff\xd8':
-            self.mode = 'MJPEG_STANDARD'
-            print(f"[VIDEO] Detected MJPEG_STANDARD format")
+        print(f"[VIDEO] Loading {filename} at {resolution}")
+        self.load_frames()
+    
+    def load_frames(self):
+        """Load and resize frames."""
+        # Target size based on resolution
+        if self.resolution == "720p":
+            target_size = (1280, 720)
+        elif self.resolution == "1080p":
+            target_size = (1920, 1080)
         else:
-            self.mode = 'LAB_PROPRIETARY'
-            print(f"[VIDEO] Detected LAB_PROPRIETARY format")
-
-    def nextFrame(self):
-        """Return next frame as bytes, or None at EOF."""
-        if self.mode == 'LAB_PROPRIETARY':
-            # Original lab format
-            length_bytes = self.file.read(5)
-            if not length_bytes or len(length_bytes) < 5:
-                return None
+            target_size = (1280, 720)
+        
+        try:
+            with open(self.filename, 'rb') as f:
+                data = f.read()
             
-            try:
-                framelength_str = length_bytes.decode('ascii')
-                framelength = int(framelength_str)
-            except:
-                framelength = int.from_bytes(length_bytes, 'big')
+            print(f"[VIDEO] File size: {len(data):,} bytes")
             
-            if framelength <= 0:
-                return None
+            # Simple MJPEG parsing
+            frames = []
+            pos = 0
+            loaded_count = 0
             
-            data = self.file.read(framelength)
-            if not data or len(data) < framelength:
-                return None
-            
-            self.frameNum += 1
-            if self.frameNum % 30 == 0:
-                print(f"[VIDEO] Read frame {self.frameNum}, size: {len(data)} bytes")
-            return data
-
-        else:  # MJPEG_STANDARD
-            # Improved MJPEG reader
-            data_buf = bytearray()
-            found_soi = False
-            bytes_read = 0
-            max_bytes_per_frame = 500000  # 500KB max
-            
-            while True:
-                chunk = self.file.read(4096)  # Read in chunks for efficiency
-                if not chunk:
-                    # EOF
-                    if data_buf and len(data_buf) >= 2 and data_buf[:2] == b'\xff\xd8':
-                        self.frameNum += 1
-                        frame_bytes = bytes(data_buf)
-                        print(f"[VIDEO] Read frame {self.frameNum}, size: {len(frame_bytes)} bytes")
-                        return frame_bytes
-                    return None
+            while pos < len(data):
+                # Find JPEG start
+                soi_pos = data.find(b'\xff\xd8', pos)
+                if soi_pos == -1:
+                    break
                 
-                # Append chunk to buffer
-                data_buf.extend(chunk)
-                bytes_read += len(chunk)
+                # Find JPEG end
+                eoi_pos = data.find(b'\xff\xd9', soi_pos)
+                if eoi_pos == -1:
+                    break
                 
-                # Safety check
-                if bytes_read > max_bytes_per_frame:
-                    print(f"[VIDEO WARN] Frame too large, resetting")
-                    return None
+                # Extract frame
+                frame_end = eoi_pos + 2
+                frame_data = data[soi_pos:frame_end]
+                loaded_count += 1
                 
-                # Check for EOI in new chunk
-                if len(data_buf) >= 4:
-                    # Find SOI if not found
-                    if not found_soi:
-                        soi_pos = data_buf.find(b'\xff\xd8')
-                        if soi_pos != -1:
-                            found_soi = True
-                            # Keep only from SOI onward
-                            data_buf = data_buf[soi_pos:]
+                # Resize if needed
+                try:
+                    img = Image.open(io.BytesIO(frame_data))
+                    original_size = img.size
                     
-                    # Check for EOI
-                    if found_soi:
-                        eoi_pos = data_buf.find(b'\xff\xd9')
-                        if eoi_pos != -1:
-                            # Complete frame found
-                            frame_end = eoi_pos + 2
-                            frame_data = bytes(data_buf[:frame_end])
-                            
-                            # Keep remaining data for next frame
-                            remaining = data_buf[frame_end:]
-                            
-                            self.frameNum += 1
-                            frame_bytes = frame_data
-                            print(f"[VIDEO] Read frame {self.frameNum}, size: {len(frame_bytes)} bytes")
-                            
-                            # Reset buffer with remaining data
-                            self.file.seek(self.file.tell() - len(remaining))
-                            return frame_bytes  
+                    if img.size != target_size:
+                        img = img.resize(target_size, Image.Resampling.LANCZOS)
+                        if loaded_count % 100 == 0:
+                            print(f"[VIDEO] Resized frame {loaded_count}: {original_size} -> {target_size}")
+                    
+                    # Save as JPEG
+                    buffer = io.BytesIO()
+                    quality = 85 if self.resolution == "720p" else 80
+                    img.save(buffer, format='JPEG', quality=quality)
+                    frame_data = buffer.getvalue()
+                except Exception as e:
+                    # Keep original frame if resize fails
+                    pass
+                
+                frames.append(frame_data)
+                pos = frame_end
+                
+                if loaded_count % 100 == 0:
+                    print(f"[VIDEO] Loaded {loaded_count} frames...")
+            
+            self.frames = frames
+            print(f"[VIDEO] Successfully loaded {len(frames)} frames at {self.resolution}")
+            
+            # Calculate average frame size
+            if frames:
+                avg_size = sum(len(f) for f in frames) / len(frames)
+                print(f"[VIDEO] Average frame size: {avg_size:,.0f} bytes")
+            
+        except Exception as e:
+            print(f"[VIDEO] Error loading video: {e}")
+            self.frames = []
+    
+    def nextFrame(self):
+        """Get next frame - FIXED VERSION."""
+        if not self.frames:
+            print("[VIDEO] No frames available")
+            return None
+        
+        # Loop back if at end
+        if self.current_index >= len(self.frames):
+            self.current_index = 0
+            print("[VIDEO] Looping back to start")
+        
+        frame = self.frames[self.current_index]
+        
+        # Debug every 30 frames
+        if self.current_index % 30 == 0:
+            print(f"[VIDEO] Serving frame {self.current_index + 1}/{len(self.frames)} ({len(frame):,} bytes)")
+        
+        # **QUAN TRỌNG: Tăng current_index SAU KHI lấy frame**
+        self.current_index += 1
+        
+        return frame
+    
+    def reset(self):
+        """Reset to beginning."""
+        self.current_index = 0
+        print("[VIDEO] Reset to beginning")
+    
+    def get_position(self):
+        """Get current position (0-based index)."""
+        return self.current_index
+    
+    def get_total_frames(self):
+        """Get total number of frames."""
+        return len(self.frames)
+    
+    def seek(self, frame_index):
+        """Seek to specific frame index (0-based)."""
+        if 0 <= frame_index < len(self.frames):
+            self.current_index = frame_index
+            print(f"[VIDEO] Seek to frame {frame_index + 1}/{len(self.frames)}")
+            return True
+        return False
